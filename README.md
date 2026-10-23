@@ -60,6 +60,7 @@ and data folders.
 uv run poe tests                          # build (or reuse) bitcoind with wallet
 uv run poe tests -B 30.2 -j 8             # pin release and run compile parallelism
 uv run poe test-base -t p2pkh             # run only tests/integration/test_p2pkh.py
+uv run poe test-base -t p2wpkh -B 31.1    # native SegWit review/sign/export round trip
 uv run poe test-base -t p2pkh -- -k psbt  # anything after `--` goes to pytest
 ```
 
@@ -73,6 +74,26 @@ uv run pytest --build-bitcoin 30.2 --nproc 8 tests      # pin release and compil
 
 Flags such as `--force-build` / `--preserve-data` are documented in
 `bornal`'s README.
+
+### Native SegWit round trip
+
+`tests/integration/test_p2wpkh.py` extends the lab described in
+[Krux #968](https://github.com/selfcustody/krux/issues/968). It funds a BIP84
+watch-only wallet, checks Krux's recipient/change/fee review against Core's
+transaction data using integer satoshis, signs and exports the PSBT through
+Krux, and asks Core to finalize, accept and confirm it. An unsigned control and
+an output-tampering control must fail Core's script checks.
+
+Run the whole module: its ordered tests share state, just like the legacy
+module. `uv run poe tests -B 31.1` runs both modules. The existing CI's
+`test-base` invocation also discovers both. bornal manages per-module node
+directories, startup/shutdown timeouts and diagnostic logs.
+
+The Krux revision is pinned by the `vendor/krux` submodule; inspect it with
+`git submodule status vendor/krux`. bornal is pinned in `uv.lock`. Specify a Core
+release with `-B` to reproduce a run, and retain the Core version and Krux SHA
+when sharing results. These tests exercise host-side review text and signing
+with the real secp256k1/uUR modules, not camera transport or physical displays.
 
 ### Debug tests
 
