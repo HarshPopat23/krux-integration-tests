@@ -138,6 +138,7 @@ class BaseTest(IntegrationTest):
     state: dict
     signers: dict[str, Signer]
     coordinator: Coordinator
+    script_type = P2PKH
 
     def set_test_params(self):
         """Declare the airgap signers and two listening ``bitcoin-core`` nodes"""
@@ -145,7 +146,7 @@ class BaseTest(IntegrationTest):
 
         # Prepare some 'airgap' wallets (regtest only)
         self.signers = {
-            name: Signer.from_mnemonic(mnemonic)
+            name: Signer.from_mnemonic(mnemonic, script=self.script_type)
             for (name, mnemonic) in TrezorVectors()._asdict().items()
         }
 
@@ -167,15 +168,27 @@ class BaseTest(IntegrationTest):
         requests = []
         for name, airgap in self.signers.items():
             names.append(name)
-            requests.append({"desc": airgap.as_legacy().get_descriptor()})
+            requests.append({"desc": airgap.get_descriptor()})
         self.coordinator = Coordinator(self.backends[1])
         self.coordinator.import_watchonly_wallets(names, requests)
 
 
+@pytest.fixture(scope="module", name="signer_script")
+def default_signer_script():
+    """Script type for this module; legacy unless explicitly overridden."""
+    return P2PKH
+
+
 @pytest.fixture(scope="module")
-def test_factory():
-    """``BaseTest`` for bornal's module-scoped ``integration_test``"""
-    return BaseTest
+def test_factory(signer_script):
+    """Configure bornal's module-scoped lab with the requested script type."""
+
+    class ScriptTest(BaseTest):
+        """Keep each module's wallet configuration isolated."""
+
+        script_type = signer_script
+
+    return ScriptTest
 
 
 @pytest.fixture
