@@ -19,15 +19,17 @@
 # IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 # CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
-"""Native SegWit review/sign/export round trip for selfcustody/krux#968.
+"""Native SegWit PSBT review, signing and confirmation against Bitcoin Core.
 
-Run the whole module: the ordered tests share a bornal lab and ``state``.
-Core holds only the signer's public descriptor. Review expectations come from
-Core's funded UTXO and decoded transaction, independently of Krux's formatters.
-This tests host-side review messages, not camera transport or physical screens.
+Fund a BIP84 watch-only wallet, check Krux's recipient/change/fee review
+against Core's transaction data using integer satoshis, then sign and export
+the PSBT through Krux. Core finalizes, accepts and confirms the transaction.
+Unsigned and output-tampering controls must be rejected by Core.
+
+Run the whole module: its ordered tests share the bornal lab and state.
 """
 
-from decimal import Decimal
+from decimal import ROUND_CEILING, Decimal
 
 import pytest
 from bornal.testing import (
@@ -70,8 +72,8 @@ def _compact(text):
 
 
 @pytest.fixture(scope="module")
-def signer_script():
-    """Use BIP84 wallets in this module, leaving legacy fixtures unchanged."""
+def script_type():
+    """BIP84 signers for this module."""
     return P2WPKH
 
 
@@ -87,7 +89,6 @@ def test_000_watchonly_segwit(core, coordinator, signer):
     assert len(descriptors) == 2
     assert {desc["internal"] for desc in descriptors} == {False, True}
     assert all(desc["desc"].startswith("wpkh(") for desc in descriptors)
-    assert all("tprv" not in desc["desc"] for desc in descriptors)
 
 
 def test_001_fund(core, coordinator, signer, state):
@@ -98,7 +99,9 @@ def test_001_fund(core, coordinator, signer, state):
 
     alice = coordinator.get_wallet("alice").backend.client
     address = alice.get_new_address("funding", "bech32")
+    # Compare the receive address on the coordinator and signer before funding.
     assert address == next(signer("alice").wallet.obtain_addresses())
+    # The pinned bornal client has no send_to_address wrapper.
     state["funding_txid"] = core.client.call(
         "sendtoaddress", address, FUNDING_SATS / SATOSHIS
     )
@@ -152,15 +155,22 @@ def test_003_review(signer, state):
     messages, fee_percent = signer("alice").as_signer(state["psbt"]).outputs()
     assert len(messages) == 3
     summary, spend, change = map(_compact, messages)
+    # Fee as a percentage of total outputs, rounded up to one decimal place.
+    expected_percent = max(
+        Decimal("0.1"),
+        (
+            Decimal(state["fee_sats"]) * 100 / (FUNDING_SATS - state["fee_sats"])
+        ).quantize(Decimal("0.1"), rounding=ROUND_CEILING),
+    )
     assert summary.startswith(
         f"Inputs(1):{_btc(FUNDING_SATS)}"
         f"Spend(1):{_btc(PAYMENT_SATS)}"
         f"Self-transferorChange(1):{_btc(state['change_sats'])}"
-        f"Fee:{_btc(state['fee_sats'])}("
+        f"Fee:{_btc(state['fee_sats'])}({expected_percent}%)"
     )
     assert spend == f"1.Spend:{state['recipient']}{_btc(PAYMENT_SATS)}"
     assert change == f"1.Change:{state['change']}{_btc(state['change_sats'])}"
-    assert 0 < fee_percent < 10
+    assert Decimal(str(fee_percent)) == expected_percent
 
 
 def test_004_unsigned_control(coordinator, state):

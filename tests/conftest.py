@@ -6,6 +6,7 @@ import sys
 import types
 from collections import namedtuple
 from dataclasses import dataclass
+from functools import partial
 from unittest.mock import MagicMock
 
 import pytest
@@ -138,7 +139,10 @@ class BaseTest(IntegrationTest):
     state: dict
     signers: dict[str, Signer]
     coordinator: Coordinator
-    script_type = P2PKH
+
+    def __init__(self, *args, script_type=P2PKH, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.script_type = script_type
 
     def set_test_params(self):
         """Declare the airgap signers and two listening ``bitcoin-core`` nodes"""
@@ -173,22 +177,16 @@ class BaseTest(IntegrationTest):
         self.coordinator.import_watchonly_wallets(names, requests)
 
 
-@pytest.fixture(scope="module", name="signer_script")
-def default_signer_script():
-    """Script type for this module; legacy unless explicitly overridden."""
+@pytest.fixture(scope="module", name="script_type")
+def default_script_type():
+    """Signer script for the module's lab; override it per module."""
     return P2PKH
 
 
 @pytest.fixture(scope="module")
-def test_factory(signer_script):
-    """Configure bornal's module-scoped lab with the requested script type."""
-
-    class ScriptTest(BaseTest):
-        """Keep each module's wallet configuration isolated."""
-
-        script_type = signer_script
-
-    return ScriptTest
+def test_factory(script_type):
+    """``BaseTest`` for bornal's module-scoped ``integration_test``."""
+    return partial(BaseTest, script_type=script_type)
 
 
 @pytest.fixture
