@@ -58,8 +58,9 @@ and data folders.
 
 ```sh
 uv run poe tests                          # build (or reuse) bitcoind with wallet
-uv run poe tests -B 30.2 -j 8             # pin release and run compile parallelism
+uv run poe tests -B <version> -j 8        # pin release and run compile parallelism
 uv run poe test-base -t p2pkh             # run only tests/integration/test_p2pkh.py
+uv run poe test-base -t p2wpkh            # run only tests/integration/test_p2wpkh.py
 uv run poe test-base -t p2pkh -- -k psbt  # anything after `--` goes to pytest
 ```
 
@@ -68,7 +69,7 @@ The plain `pytest` form still works and is what the tasks expand to:
 ```sh
 uv run pytest --build-bitcoin latest --wallet tests     # it build bitcoind with wallet then run
 uv run pytest tests                                     # reuse the cached build
-uv run pytest --build-bitcoin 30.2 --nproc 8 tests      # pin release and compile parallelism
+uv run pytest --build-bitcoin <version> --nproc 8 tests # pin release and compile parallelism
 ```
 
 Flags such as `--force-build` / `--preserve-data` are documented in
