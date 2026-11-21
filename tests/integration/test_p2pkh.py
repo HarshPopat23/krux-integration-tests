@@ -55,7 +55,7 @@ Build the daemon and run this test with the bornal's ``pytest`` plugin::
     pytest --build-bitcoin latest --wallet tests/integration/test_p2pkh.py
 """
 
-from pytest import raises
+from pytest import fixture, raises
 
 from bornal.client import ClientError
 from bornal.plugins.bitcoind import UNSPENDABLE_ADDRESS
@@ -95,6 +95,8 @@ from krux.key import (
     TYPE_MINISCRIPT,
 )
 
+from integration.helpers import unsigned_hex
+
 ALICE = "alice"
 BOB = "bob"
 FUNDING = 1.5
@@ -106,9 +108,10 @@ MISMATCHED = [
 ]
 
 
-def unsigned_hex(psbt: str) -> str:
-    """Raw hex of the transaction ``psbt`` carries, signatures left out"""
-    return PSBT.from_string(psbt).tx.serialize().hex()
+@fixture(scope="module")
+def script_type():
+    """Legacy signers for this module."""
+    return P2PKH
 
 
 def test_000_start(core, coordinator):
@@ -525,11 +528,18 @@ def test_026_psbt_sighash(coordinator, signer, state):
     alice = signer("alice")
     alice_wallet = coordinator.get_wallet(ALICE)
     cases = [("NONE", "0x02"), ("SINGLE", "0x03"), ("ALL|ANYONECANPAY", "0x81")]
+    # Core 29 reports these unsigned inputs as signer-ready; 30+ reports updater.
+    version = coordinator.backend.client.call("getnetworkinfo")["version"]
+    next_role = "signer" if version < 300000 else "updater"
 
     # for each sighash, check in both krux and core the signs of malicious psbt
     for sighash, _hex in cases:
+        # Core 29 does not add the requested sighash when sign=False.
+        # Put it in the PSBT explicitly so all versions review the same input.
+        modified = PSBT.from_string(state["psbt"])
+        modified.inputs[0].sighash_type = int(_hex, 16)
         req = alice_wallet.backend.client.wallet_process_psbt(
-            state["psbt"], False, sighash
+            modified.to_string(), False, sighash
         )
         (inputs,) = coordinator.backend.client.decode_psbt(req["psbt"])["inputs"]
         assert not req["complete"]
@@ -543,7 +553,7 @@ def test_026_psbt_sighash(coordinator, signer, state):
         # Core does not see it as signer's work done yet
         unsigned = _krux.psbt.to_string()
         assert_not_finalized(coordinator.backend, unsigned)
-        assert_next_role(coordinator.backend, unsigned, "updater")
+        assert_next_role(coordinator.backend, unsigned, next_role)
         assert_send_rawtx_rejects(coordinator.backend, unsigned_hex(unsigned))
 
 
